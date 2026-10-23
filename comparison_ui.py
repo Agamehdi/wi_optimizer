@@ -71,7 +71,11 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
                    delta=f"{metrics['cps_delivery_gap_after_mbd']-metrics['cps_delivery_gap_before_mbd']:+,.1f} mbd",delta_color='inverse')
     cols[4].metric('Oil-supported PROXY Δ',f"{metrics['support_after_mbd']-metrics['support_before_mbd']:+,.2f} mbd",
                    help='Fixed well/pattern VoW coefficient × change in allocated water. NOT predicted incremental oil.')
-    if ('Missing BMT wells' in mf.columns) and mf['Missing BMT wells'].sum()>0:
+    # Inspect the computed source comparison, not the display variable `mf`
+    # (which is only created below). This previously raised UnboundLocalError
+    # as soon as comparison calculations succeeded.
+    source_mf=comp['capacity_manifold']
+    if ('Missing BMT wells' in source_mf.columns) and source_mf['Missing BMT wells'].sum()>0:
         st.warning('The source Gap Analysis includes wells without assessed BMT capacity. Optimization and new target-delivery comparisons include assessed wells only. '
                    'Review the Missing BMT column and original source table before treating this as a field-wide gap.')
     st.info(f"**Basis:** {baseline_note}. Supported-oil values are a **fixed-VoW engineering screening proxy**, not field production forecasts. "
@@ -175,6 +179,10 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
         st.markdown('### 07 · Allocation impact: which changes drive the result?')
         w=result['wells'].copy()
         w=w[w.facility.isin(selection)].copy()
+        if 'Reservoir' not in w.columns:
+            w['Reservoir']=''
+        if 'VoW source' not in w.columns:
+            w['VoW source']='Unavailable'
         w['Original (mbd)']=w.baseline/1000
         w['Optimized (mbd)']=w['Optimized injection']/1000
         w['Change (mbd)']=w['Delta injection']/1000
