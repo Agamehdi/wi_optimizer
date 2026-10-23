@@ -1,6 +1,7 @@
 """Interactive engineering-grade Original vs Optimized dashboard in Streamlit."""
 from __future__ import annotations
 import io
+import logging
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -103,46 +104,53 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
         st.caption('Exact 18-column layout of the supplied WI Gap Analysis source screenshot. Original is the selected dated baseline; '
                    'Optimized is the exact solved well allocation, including approved same-CPS manifold changes. '
                    'All values are **mbd**. Scroll horizontally to view all 18 columns. The separate Changes tab retains the decision-impact columns.')
-        original_summary, optimized_summary, gap_delta = gs.build_gap_summary(comp, target)
-        original_summary = original_summary[original_summary['CPS'].isin(selection + ['TOTAL'])].copy()
-        optimized_summary = optimized_summary[optimized_summary['CPS'].isin(selection + ['TOTAL'])].copy()
-        gap_delta = gap_delta[gap_delta['CPS'].isin(selection)].copy()
-        # Selection-aware TOTAL rows: never present full-field totals beneath a
-        # filtered CPS selection. Sum facility-only measures only once per CPS.
-        for table in (original_summary, optimized_summary):
-            grouped=table[table['CPS'].ne('TOTAL')]
-            tidx=table.index[table['CPS'].eq('TOTAL')]
-            if len(tidx):
-                for field in gs.RATE_FIELDS:
-                    v=grouped.drop_duplicates('CPS')[field] if field in gs.FACILITY_FIELDS else grouped[field]
-                    table.loc[tidx,field]=v.sum() if v.notna().all() else np.nan
-                table.loc[tidx,'Missing BMT wells']=grouped['Missing BMT wells'].sum()
-        original_total=original_summary[original_summary.CPS.eq('TOTAL')].iloc[0]
-        optimized_total=optimized_summary[optimized_summary.CPS.eq('TOTAL')].iloc[0]
-        j1,j2,j3=st.columns(3)
-        j1.metric('Injection improvement',
-            f"{optimized_total['Manifold Injection Rate']-original_total['Manifold Injection Rate']:+,.1f} mbd")
-        j2.metric('MF delivery gap reduction',
-            f"{original_total['Delivery Gap to Selected Target']-optimized_total['Delivery Gap to Selected Target']:+,.1f} mbd")
-        j3.metric('CPS unused capacity change',
-            f"{optimized_total['CPS Ullage']-original_total['CPS Ullage']:+,.1f} mbd")
-        summary_tabs=st.tabs(['Original — Before','Optimized — After','Changes by Manifold'])
-        with summary_tabs[0]:
-            st.markdown(gs.gap_table_html(original_summary,'ORIGINAL',target,analysis_date),unsafe_allow_html=True)
-        with summary_tabs[1]:
-            st.markdown(gs.gap_table_html(optimized_summary,'OPTIMIZED',target,analysis_date),unsafe_allow_html=True)
-        with summary_tabs[2]:
-            st.caption('Positive delivery-gap reduction is favorable. Negative manifold ullage change means '
-                       'previously unused capacity is being utilized. Physical capacity shortfall remains unchanged '
-                       'without rerouting or hardware changes.')
-            gap_delta = gap_delta.sort_values('Injection Δ (mbd)',key=lambda x:x.abs(),ascending=False)
-            _show_decision_table(gap_delta)
-        if original_total['Missing BMT wells']:
-            st.warning('Some BMT well capacities are not assessed. The well-constraint column is n.a. '
-                       'for affected manifolds and cannot be interpreted as a complete physical gap.')
-        st.caption('IIC and INJ_RATE @ OE in this comparison represent the SAME allocated CPS injection '
-                   'in the selected Original/Optimized scenario. These are not separate RMT+OE recomputations. '
-                   'Well and facility capacities are unchanged; only approved well setpoints/routes may change.')
+        try:
+            original_summary, optimized_summary, gap_delta = gs.build_gap_summary(comp, target)
+            original_summary = original_summary[original_summary['CPS'].isin(selection + ['TOTAL'])].copy()
+            optimized_summary = optimized_summary[optimized_summary['CPS'].isin(selection + ['TOTAL'])].copy()
+            gap_delta = gap_delta[gap_delta['CPS'].isin(selection)].copy()
+            # Selection-aware TOTAL rows: never present full-field totals beneath a
+            # filtered CPS selection. Sum facility-only measures only once per CPS.
+            for table in (original_summary, optimized_summary):
+                grouped=table[table['CPS'].ne('TOTAL')]
+                tidx=table.index[table['CPS'].eq('TOTAL')]
+                if len(tidx):
+                    for field in gs.RATE_FIELDS:
+                        v=grouped.drop_duplicates('CPS')[field] if field in gs.FACILITY_FIELDS else grouped[field]
+                        table.loc[tidx,field]=v.sum() if v.notna().all() else np.nan
+                    table.loc[tidx,'Missing BMT wells']=grouped['Missing BMT wells'].sum()
+            original_total=original_summary[original_summary.CPS.eq('TOTAL')].iloc[0]
+            optimized_total=optimized_summary[optimized_summary.CPS.eq('TOTAL')].iloc[0]
+            j1,j2,j3=st.columns(3)
+            j1.metric('Injection improvement',
+                f"{optimized_total['Manifold Injection Rate']-original_total['Manifold Injection Rate']:+,.1f} mbd")
+            j2.metric('MF delivery gap reduction',
+                f"{original_total['Delivery Gap to Selected Target']-optimized_total['Delivery Gap to Selected Target']:+,.1f} mbd")
+            j3.metric('CPS unused capacity change',
+                f"{optimized_total['CPS Ullage']-original_total['CPS Ullage']:+,.1f} mbd")
+            summary_tabs=st.tabs(['Original — Before','Optimized — After','Changes by Manifold'])
+            with summary_tabs[0]:
+                st.markdown(gs.gap_table_html(original_summary,'ORIGINAL',target,analysis_date),unsafe_allow_html=True)
+            with summary_tabs[1]:
+                st.markdown(gs.gap_table_html(optimized_summary,'OPTIMIZED',target,analysis_date),unsafe_allow_html=True)
+            with summary_tabs[2]:
+                st.caption('Positive delivery-gap reduction is favorable. Negative manifold ullage change means '
+                           'previously unused capacity is being utilized. Physical capacity shortfall remains unchanged '
+                           'without rerouting or hardware changes.')
+                gap_delta = gap_delta.sort_values('Injection Δ (mbd)',key=lambda x:x.abs(),ascending=False)
+                _show_decision_table(gap_delta)
+            if original_total['Missing BMT wells']:
+                st.warning('Some BMT well capacities are not assessed. The well-constraint column is n.a. '
+                           'for affected manifolds and cannot be interpreted as a complete physical gap.')
+            st.caption('IIC and INJ_RATE @ OE in this comparison represent the SAME allocated CPS injection '
+                       'in the selected Original/Optimized scenario. These are not separate RMT+OE recomputations. '
+                       'Well and facility capacities are unchanged; only approved well setpoints/routes may change.')
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as exc:
+            logging.getLogger(__name__).exception('18-column WI Gap summary failed; other comparison plots remain available')
+            st.error(f'18-column Gap Summary could not be displayed ({type(exc).__name__}: {exc}). '
+                     'Other Original vs Optimized charts remain available below.')
+            st.caption('Check that the uploaded well, RMT/Agreed, manifold and CPS capacity fields are numeric; '
+                       'you may still export the other comparison results.')
         st.divider()
         st.markdown('### 01 · Target delivery shortfall')
         fig=cv.bar_before_after(cps,'CPS','Delivery Gap Before','Delivery Gap After',
@@ -257,9 +265,15 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
     excel=io.BytesIO()
     with pd.ExcelWriter(excel,engine='openpyxl') as writer:
         # Added snapshot-style before/after and directly comparable delta exports.
-        full_orig, full_opt, full_delta = gs.build_gap_summary(comp, target)
-        for sh, dataset in [('Gap_Summary_Original',full_orig),('Gap_Summary_Optimized',full_opt),('Gap_Manifold_Changes',full_delta)]:
-            dataset.to_excel(writer,sheet_name=sh,index=False)
+        try:
+            full_orig, full_opt, full_delta = gs.build_gap_summary(comp, target)
+            for sh, dataset in [('Gap_Summary_Original', full_orig), ('Gap_Summary_Optimized', full_opt),
+                                ('Gap_Manifold_Changes', full_delta)]:
+                dataset.to_excel(writer, sheet_name=sh, index=False)
+        except (TypeError, ValueError, KeyError, IndexError, OverflowError) as exc:
+            logging.getLogger(__name__).exception('WI Gap export failed; preserving other Excel worksheets')
+            pd.DataFrame({'Gap table export issue': [f'{type(exc).__name__}: {exc}']}).to_excel(
+                writer, sheet_name='Gap_Summary_QC', index=False)
         mbd_view(comp['capacity_cps']).to_excel(writer,sheet_name='CPS_Before_After',index=False)
         mbd_view(comp['capacity_manifold']).to_excel(writer,sheet_name='MF_Before_After',index=False)
         comp['scatter_cps'].to_excel(writer,sheet_name='CPS_Support_Scatter',index=False)

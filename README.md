@@ -249,3 +249,35 @@ To verify: `python -m pytest -q` — **24 tests** pass in this build. A browser
 rendering of the exact HTML layout has also been inspected against the reference
 screenshot with synthetic regression data; actual field input/output should still
 be QCed in the deployed Streamlit app.
+
+## V2.4 — TypeError handling and comparison UI regression checks (2026-10-23)
+
+The user-provided Streamlit Cloud traceback ended at the call to
+`comparison_ui.render_comparison(...)` and omitted the final exception message
+and inner traceback line. That evidence alone does **not** identify the exact
+failing statement or prove a particular root cause.
+
+This update keeps the optimization engine, its constraints, both legacy
+calculators, and the Original/Optimized presentation unchanged when data is
+valid. It adds:
+
+- An error boundary specifically around the 18-column screenshot-format tables.
+  If rendering one of these raises a `TypeError` (or malformed-data error), the
+  **other comparison plots still render** and the error type/message are shown.
+- An error boundary around the three screenshot-specific Excel worksheets:
+  other Excel worksheets are still downloadable, and the file contains
+  `Gap_Summary_QC` with the message if the new summary could not be created.
+- A top-level guard in the app's `Original vs Optimized` tab so that a failure in
+  any remaining comparison widget does not take down the other tabs. The actual
+  exception type and message appear in the tab and its traceback is preserved
+  in Streamlit Cloud server logs / a diagnostics expander.
+- Three UI integration/regression tests. They exercise the real optimizer result,
+  both exact-format HTML tables, the plots, the Excel export, a real `date`
+  instance, and injected TypeErrors. The tested Python package passes **27 tests**.
+
+**Verification limits:** The build was tested in Python with a minimal Streamlit
+UI shim because the Streamlit library is not installed in this build
+container. The original Cloud exception's final line and the user's raw input
+files were not provided; live Cloud reproduction is not yet confirmed. If the
+new diagnostics reports an error on your data, copy the new *exact exception
+message* and traceback from the expanded diagnostics for a targeted fix.

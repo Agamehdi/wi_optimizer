@@ -281,9 +281,21 @@ if bundle:
         st.markdown('**Manifold changes and remaining ullage (mbd)**')
         st.dataframe(format_view(mf,['Current injection','Optimized injection','Capacity','Before ullage','After ullage','Change']),hide_index=True,use_container_width=True)
     with compare_tab:
-        cui.render_comparison(result,caps,bundle['gap'],bundle['pattern'],mapping=m,
-              target_default='RMT Target' if gap_basis=='RMT Target' else 'RMT+OE Target',
-              baseline_note=baseline_note,analysis_date=analysis_date)
+        try:
+            cui.render_comparison(result,caps,bundle['gap'],bundle['pattern'],mapping=m,
+                  target_default='RMT Target' if gap_basis=='RMT Target' else 'RMT+OE Target',
+                  baseline_note=baseline_note,analysis_date=analysis_date)
+        except Exception as exc:
+            # Preserve the existing overview and actionable well recommendations.
+            # The final traceback line wasn't included in the reported Cloud error;
+            # show its actual type/message here, and leave the full traceback in logs.
+            import logging
+            logging.getLogger(__name__).exception('Original vs Optimized dashboard failed')
+            st.error(f'Original vs Optimized display error: {type(exc).__name__}: {exc}')
+            with st.expander('Detailed diagnostics (share with the code maintainer)',expanded=False):
+                st.exception(exc)
+            st.info('Your solved optimization remains available in the other tabs. '
+                    'The comparison display could not be completed; this does not validate the optimization output.')
     with actions:
         changed=rec.loc[rec.Action.ne('Maintain')].copy()
         changed['Abs delta']=changed['Delta injection'].abs()
