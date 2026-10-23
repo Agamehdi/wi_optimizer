@@ -42,7 +42,8 @@ def _download_html(figures):
             + ''.join(blocks) +'</body></html>').encode('utf-8')
 
 
-def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default='RMT+OE Target',baseline_note='',analysis_date=None):
+def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default='RMT+OE Target',baseline_note='',analysis_date=None,
+                      missing_bmt_policy='Exclude and flag',missing_bmt_count=0):
     """Called only AFTER optimizer result exists and has passed input QC."""
     st.header('Original vs Optimized | Performance & Capacity Gap')
     st.caption('All bar charts are calculated from the optimizer’s dated well-by-well result, with the same CPS and manifold capacities in both scenarios.')
@@ -77,7 +78,7 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
     # (which is only created below). This previously raised UnboundLocalError
     # as soon as comparison calculations succeeded.
     source_mf=comp['capacity_manifold']
-    if ('Missing BMT wells' in source_mf.columns) and source_mf['Missing BMT wells'].sum()>0:
+    if missing_bmt_policy!='Treat as zero' and ('Missing BMT wells' in source_mf.columns) and source_mf['Missing BMT wells'].sum()>0:
         st.warning('The source Gap Analysis includes wells without assessed BMT capacity. Optimization and new target-delivery comparisons include assessed wells only. '
                    'Review the Missing BMT column and original source table before treating this as a field-wide gap.')
     st.info(f"**Basis:** {baseline_note}. Supported-oil values are a **fixed-VoW engineering screening proxy**, not field production forecasts. "
@@ -101,6 +102,14 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
     a,b,c,d=st.tabs(['Capacity Gap & Tables','VoW × Oil Supported','Ullage by CPS / Manifold','Optimization Decision Summary'])
     with a:
         st.markdown('### Original vs Optimized — Full Capacity Gap Summary')
+        if missing_bmt_policy=='Treat as zero':
+            st.caption(f'**Missing BMT capacity: Treat as zero** — {missing_bmt_count} unassessed '
+                       'well(s) are assigned 0 bbl/day BMT capacity in BOTH Original and Optimized. '
+                       'Well gaps are calculated numerically; this is an explicit assumption, not measured injectivity.')
+        elif missing_bmt_count:
+            st.caption(f'**Missing BMT capacity: Exclude and flag** — {missing_bmt_count} unassessed '
+                       'well(s). Some well gaps display n.a. rather than inventing a capacity. '
+                       'Select **Treat as zero** in the sidebar, then rerun optimization, for a numeric zero-capacity scenario.')
         st.caption('Exact 18-column layout of the supplied WI Gap Analysis source screenshot. Original is the selected dated baseline; '
                    'Optimized is the exact solved well allocation, including approved same-CPS manifold changes. '
                    'All values are **mbd**. Scroll horizontally to view all 18 columns. The separate Changes tab retains the decision-impact columns.')
@@ -139,7 +148,7 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
                            'without rerouting or hardware changes.')
                 gap_delta = gap_delta.sort_values('Injection Δ (mbd)',key=lambda x:x.abs(),ascending=False)
                 _show_decision_table(gap_delta)
-            if original_total['Missing BMT wells']:
+            if missing_bmt_policy!='Treat as zero' and original_total['Missing BMT wells']:
                 st.warning('Some BMT well capacities are not assessed. The well-constraint column is n.a. '
                            'for affected manifolds and cannot be interpreted as a complete physical gap.')
             st.caption('IIC and INJ_RATE @ OE in this comparison represent the SAME allocated CPS injection '

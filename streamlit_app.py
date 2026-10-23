@@ -48,14 +48,15 @@ def format_view(df, numeric=None,mbd=True):
 
 def source_report(wells, facilities, pat, config, source_opts):
     selected=source_opts['date']
-    d,unknown=wg.latest_wells(wells,selected,'Exclude and flag')
-    if d.empty:raise ValueError('No BMT-assessed wells available at the selected date.')
+    missing_policy=source_opts.get('missing_bmt_policy','Exclude and flag')
+    d,unknown=wg.latest_wells(wells,selected,missing_policy)
+    if d.empty:raise ValueError('No wells available under the selected Missing BMT capacity policy.')
     # Reservoir is optional in the well-source CSV; keep all downstream chart
     # and scoring tables consistent even when it was not supplied.
     if 'Reservoir' not in d.columns:
         d['Reservoir']=''
     tab,total,audit,unk=wg.calculate(wells,facilities,selected,
-        missing='Exclude and flag',scenario=source_opts['scenario'],
+        missing=missing_policy,scenario=source_opts['scenario'],
         efficiency=False,gap_basis=source_opts['gap_basis'])
     cols=['Well','selected_injection']
     base_map=audit.loc[audit['capacity'].notna(),cols].set_index('Well')['selected_injection']
@@ -134,6 +135,15 @@ with st.sidebar:
     route_mode=st.selectbox('PWRI routing',['Separate PWRI facilities','SW only'])
     scenario=st.selectbox('Baseline target scenario',['RMT+OE','Agreed Target'])
     gap_basis=st.selectbox('Gap basis',['RMT+OE','RMT Target'])
+    missing_bmt_policy=st.selectbox(
+        'Missing BMT capacity',
+        ['Exclude and flag','Treat as zero','Stop analysis'],
+        index=1,key='integrated_missing_bmt',
+        help='Treat as zero: missing BMT Well Capacity is assumed 0 bbl/day in the '
+             'optimization AND both Original/Optimized gap tables. Zero is an explicit '
+             'conservative assumption, not a measured injectivity. Exclude and flag: '
+             'unknown capacities remain unassessed (n.a.) in well-gap calculations. '
+             'Stop analysis: reject incomplete BMT records.')
     use_actual=st.checkbox('Use measured Current Injection, if complete',value=True,
         help='Requires every assessed well to have a numeric Current Injection [bbl/day] (or equivalent). Otherwise modelled constrained target is used and flagged.')
     st.header('03 · Pattern VoW')
@@ -188,7 +198,8 @@ try:
     analysis_date=st.date_input('Analysis snapshot (well & capacity effective date)',date_default,
             min_value=wells.date.min().date(),max_value=date.today().replace(year=date.today().year+5))
     if pd.Timestamp(analysis_date)<wells.date.min():raise ValueError('No wells exist at this date.')
-    opts={'date':analysis_date,'scenario':scenario,'gap_basis':gap_basis,'use_actual':use_actual}
+    opts={'date':analysis_date,'scenario':scenario,'gap_basis':gap_basis,
+          'use_actual':use_actual,'missing_bmt_policy':missing_bmt_policy}
     d,missing,gap_table,gap_total,audit,caps,baseline_note=source_report(wells,facilities,pattern_raw,None,opts)
     pattern,issues=prepare_vow(pattern_raw,method,bo,bwi,bwp,dgor,bg,share)
     if pattern.empty:raise ValueError('No Pattern rows have valid injected volume and supported-oil coefficient.')
@@ -201,7 +212,12 @@ try:
         min_score_confidence=confidence,change_penalty_vow=change_cost,route_penalty_vow=route_cost,
         solver_time_limit_sec=timeout)
     warnings=issues+match_issues+route_issues
-    if len(missing):warnings.insert(0,f'{len(missing)} wells have missing BMT capacity: excluded from optimization, NOT assessed as free injection capacity.')
+    if len(missing):
+        if missing_bmt_policy=='Treat as zero':
+            warnings.insert(0,f'{len(missing)} wells have missing BMT capacity: TREATED AS ZERO capacity in both gap summaries and optimization. '
+                               'Their missing values are NOT measured zero injectivity. Review before operational use.')
+        else:
+            warnings.insert(0,f'{len(missing)} wells have missing BMT capacity: excluded from optimization; well-gap totals remain incomplete (n.a.).')
     if scored['VoW raw'].isna().any():
         warnings.append('Some wells have no matched Pattern VoW; their rates are protected against discretionary reallocation.')
     st.caption(f'**Baseline:** {baseline_note}  |  **Snapshot:** {analysis_date}  |  **PWRI:** {route_mode}')
@@ -211,7 +227,8 @@ except Exception as e:
 
 base_total=float(scored.baseline.sum())
 col1,col2,col3,col4=st.columns(4)
-col1.metric('Wells assessed',f'{len(scored):,}')
+col1.metric('Wells in optimization',f'{len(scored):,}',
+            help='In Treat as zero mode this count includes wells with unassessed BMT capacity set to 0.')
 col2.metric('Baseline injection',f'{base_total/1000:,.1f} mbd')
 col3.metric('Scored wells',f'{int((scored["Score confidence"]>=confidence).sum()):,}')
 col4.metric('Approved alternate edges',sum(max(0,len(v)-1) for v in routes.values()))
@@ -232,7 +249,7 @@ if st.button('⚡ Run connected-network optimization',type='primary',use_contain
             'identity':(wf.getvalue(),ff.getvalue(),pf.getvalue(),
                 routefile.getvalue() if routefile else None,
                 wellpattern.getvalue() if wellpattern else None,
-                str(analysis_date),str(config),str(pattern_sheet),method,str(bo),fallback,scenario,route_mode,confidence,share,bwi,bwp,dgor,bg)}
+                str(analysis_date),str(config),str(pattern_sheet),method,str(bo),fallback,scenario,route_mode,confidence,share,bwi,bwp,dgor,bg,missing_bmt_policy)}
     except ValueError as exc:
         st.error(f'No feasible solution under these inputs: {exc}')
         st.info('If current injection already exceeds capacity, try **Additional supply** with 0 extra water. This permits necessary reductions rather than forcing exact conservation. Review well-rate minimums and source capacity QC.')
@@ -240,7 +257,7 @@ if st.button('⚡ Run connected-network optimization',type='primary',use_contain
 bundle=st.session_state.optimizer_bundle
 identity=(wf.getvalue(),ff.getvalue(),pf.getvalue(),routefile.getvalue() if routefile else None,
           wellpattern.getvalue() if wellpattern else None,str(analysis_date),str(config),str(pattern_sheet),method,
-          str(bo),fallback,scenario,route_mode,confidence,share,bwi,bwp,dgor,bg)
+          str(bo),fallback,scenario,route_mode,confidence,share,bwi,bwp,dgor,bg,missing_bmt_policy)
 if bundle and bundle['identity']!=identity:
     st.warning('Settings or uploaded data changed. Run optimization again for updated results.')
     bundle=None
@@ -284,7 +301,8 @@ if bundle:
         try:
             cui.render_comparison(result,caps,bundle['gap'],bundle['pattern'],mapping=m,
                   target_default='RMT Target' if gap_basis=='RMT Target' else 'RMT+OE Target',
-                  baseline_note=baseline_note,analysis_date=analysis_date)
+                  baseline_note=baseline_note,analysis_date=analysis_date,
+                  missing_bmt_policy=missing_bmt_policy,missing_bmt_count=len(missing))
         except Exception as exc:
             # Preserve the existing overview and actionable well recommendations.
             # The final traceback line wasn't included in the reported Cloud error;

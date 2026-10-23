@@ -1,3 +1,17 @@
+# V2.5 — Missing BMT capacity for Original / Optimized comparison
+
+The Integrated Optimizer sidebar now includes **Missing BMT capacity** with three policies:
+
+- **Treat as zero** (default): missing well BMT capacity is set to **0 bbl/day**, consistently in `wi_gap.calculate`, optimizer well limits, and both screenshot-style Original / After Optimized Capacity Gap Summary tables. Previously displayed `n.a.` well gaps are now evaluated numerically. The zero is an **explicit conservative assumption** and must not be confused with a measured BMT injectivity or a validated shut-in status.
+- **Exclude and flag**: missing-capacity wells are excluded from optimization and unassessed well gaps remain `n.a.`.
+- **Stop analysis**: blocks the calculation when missing BMT capacity exists.
+
+Changing the policy invalidates any previously solved optimization and requires re-running it. The original dashboards, plots, tables, and solver constraints are otherwise unchanged.
+
+If **Use measured Current Injection** is enabled and a well with missing BMT has a positive measured current rate, choosing **Treat as zero** may make the water-conservation scenario infeasible. This is a real conflict between the assumed zero capacity and the observed rate, not something the code will hide or overwrite. Investigate the data or use a non-conserving scenario after engineering review.
+
+---
+
 # Rumaila — Integrated Water Injection Optimization
 
 **One GitHub / Streamlit Cloud application with three pages:**
