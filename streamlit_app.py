@@ -50,6 +50,10 @@ def source_report(wells, facilities, pat, config, source_opts):
     selected=source_opts['date']
     d,unknown=wg.latest_wells(wells,selected,'Exclude and flag')
     if d.empty:raise ValueError('No BMT-assessed wells available at the selected date.')
+    # Reservoir is optional in the well-source CSV; keep all downstream chart
+    # and scoring tables consistent even when it was not supplied.
+    if 'Reservoir' not in d.columns:
+        d['Reservoir']=''
     tab,total,audit,unk=wg.calculate(wells,facilities,selected,
         missing='Exclude and flag',scenario=source_opts['scenario'],
         efficiency=False,gap_basis=source_opts['gap_basis'])
