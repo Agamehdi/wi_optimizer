@@ -283,7 +283,7 @@ if bundle:
     with compare_tab:
         cui.render_comparison(result,caps,bundle['gap'],bundle['pattern'],mapping=m,
               target_default='RMT Target' if gap_basis=='RMT Target' else 'RMT+OE Target',
-              baseline_note=baseline_note)
+              baseline_note=baseline_note,analysis_date=analysis_date)
     with actions:
         changed=rec.loc[rec.Action.ne('Maintain')].copy()
         changed['Abs delta']=changed['Delta injection'].abs()

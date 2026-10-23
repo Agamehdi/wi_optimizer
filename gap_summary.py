@@ -134,103 +134,154 @@ def build_gap_summary(comparisons: dict, target: str = 'RMT+OE Target',
     return tables['Original'], tables['Optimized'], diff
 
 
-# Screenshot-inspired layout: grouped headers, CPS-only values merged once,
-# total row with CPS measures de-duplicated. Horizontal scrolling on desktop.
-_SUMMARY_CSS = '''<style>
-.wi-gap-wrap{width:100%;overflow-x:auto;margin:8px 0 23px;padding:0 0 6px}
-.wi-gap-title{font:700 17px Arial,sans-serif;color:#173553;margin:8px 0 10px}
-.wi-gap-table{border-collapse:separate;border-spacing:0;font:12px Arial,sans-serif;
- min-width:2200px;background:#fff;color:#24384b;table-layout:auto;width:100%}
-.wi-gap-table th,.wi-gap-table td{border-right:1px solid #d4dde6;border-bottom:1px solid #d4dde6;
- padding:8px 10px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.wi-gap-table th:first-child,.wi-gap-table td:first-child{border-left:1px solid #d4dde6}
-.wi-gap-table thead tr:first-child th{background:#173553;color:#fff;border-color:#49627c;
- font-weight:700;text-align:center;padding:10px 7px}
-.wi-gap-table thead tr:nth-child(2) th{background:#e7eef5;text-align:center;
- font-weight:700;color:#183554;white-space:normal;min-width:96px;line-height:1.3}
-.wi-gap-table thead tr:nth-child(2) th:nth-last-child(-n+3){background:#d7e9e3}
-.wi-gap-table td.fac{font-weight:700;background:#f0f5f9;text-align:center;vertical-align:middle}
-.wi-gap-table td.manifold{text-align:left;font-weight:600}
-.wi-gap-table tbody tr.fac-start>td{border-top:2px solid #a6b9cb}
-.wi-gap-table td.high{font-weight:700;color:#b45309;background:#fff0d5;text-align:center}
-.wi-gap-table td.lowgap{background:#e1f3e7}
-.wi-gap-table td.mediumgap{background:#ffebac}
-.wi-gap-table td.criticalgap{background:#f7b181;color:#78300f}
-.wi-gap-table td.negative{color:#b91c1c;font-weight:700;background:#fff0f0}
-.wi-gap-table .total td{border-top:3px double #173553;background:#dce8f3;font-weight:700}
-.wi-gap-table tbody tr:hover td:not(.fac){filter:brightness(.965)}
+# Exact column structure and visual styling of the legacy ROO Gap Analysis
+# screen: no extra Decision Impact columns inside the 18-column screenshot.
+# The separate Changes by Manifold tab remains unchanged.
+SCREENSHOT_COLUMNS = [
+    'CPS', 'Manifold', 'RMT_TARGET', 'RMT_OE', 'WELL_CAPACITY',
+    'AGREED_TARGET', 'Maximum Manifold Capacity', 'Manifold Injection Rate',
+    'Maximum CPS Capacity', 'CPS Injection Rate', 'IIC', 'INJ_RATE @ OE',
+    'High Gap', 'Well Constraint to Selected Target',
+    'MF Capacity Shortfall to Agreed Target',
+    'MF Capacity Shortfall to RMT+OE Target',
+    'CPS Capacity Shortfall to Agreed Target',
+    'CPS Capacity Shortfall to RMT+OE Target',
+]
+SCREENSHOT_FACILITY_COLUMNS = FACILITY_FIELDS.intersection(SCREENSHOT_COLUMNS)
+
+_SCREENSHOT_GAP_CSS = r'''<style>
+/* Scoped to the reference table, and compatible with Streamlit dark mode. */
+.roo-gap-scroll{width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;
+ padding:0 0 8px;margin:5px 0 18px;background:transparent}
+.roo-gap-reference{min-width:1710px;width:100%;border-collapse:collapse;border-spacing:0;
+ font-family:Arial,Helvetica,sans-serif;font-size:10.5px;color:#0b1017;background:#fff;
+ table-layout:fixed;line-height:1.12}
+.roo-gap-reference th,.roo-gap-reference td{border:1px solid #929292;
+ padding:4px 5px;box-sizing:border-box;vertical-align:middle}
+.roo-gap-reference thead th{background:#fff;color:#0a111a;font-weight:700;
+ text-align:center;white-space:normal;word-break:normal}
+.roo-gap-reference thead tr.top-groups th{height:32px}
+.roo-gap-reference thead tr.column-headings th{height:34px;line-height:1.10}
+.roo-gap-reference td{height:22px;text-align:right;white-space:nowrap;
+ font-variant-numeric:tabular-nums}
+.roo-gap-reference td.fac{text-align:center;font-weight:500;background:#fff}
+.roo-gap-reference td.manifold{text-align:center;font-weight:500}
+.roo-gap-reference td.flag{text-align:center;font-weight:700}
+.roo-gap-reference td.gap-zero{background:#e0f1d5}
+.roo-gap-reference td.gap-low{background:#e0f1d5}
+.roo-gap-reference td.gap-med{background:#ffcb3f}
+.roo-gap-reference td.gap-high{background:#db671e;color:#101010}
+.roo-gap-reference td.gap-neg{background:#df6721;color:#101010}
+.roo-gap-reference tbody tr.total-row td{background:#fff;font-weight:700;
+ border-top:2px solid #6c6c6c;height:25px}
+.roo-gap-reference tbody tr.total-row td:first-child{text-align:left}
+.roo-gap-heading{font:700 17px Arial,Helvetica,sans-serif;color:inherit;margin:4px 0 6px}
+.roo-gap-reference .long-cap{line-height:1.07}
+@media(max-width:800px){.roo-gap-heading{font-size:14px}}
 </style>'''
 
 
-def gap_table_html(frame: pd.DataFrame, scenario: str, target: str) -> str:
-    """Self-contained, escaped HTML preserving the attached grouped-header table."""
-    cols = ALL_FIELDS
-    # 2 id columns + 2 reservoir + 2 well + 2 manifold + 2 cps + 1 final
-    # + 1 rate @ OE + 6 structural gap fields + 3 decision fields.
+def gap_table_html(frame: pd.DataFrame, scenario: str, target: str,
+                   analysis_date=None) -> str:
+    '''Render exactly the same 18 column layout as the original Gap Analysis screenshot.
+
+    The underlying frame comes from the unchanged optimizer comparison engine.
+    The screen merges group cells vertically, keeps the bold TOTAL row,
+    and does not add any unsupported physical capacity improvements.
+    '''
+    missing = [c for c in SCREENSHOT_COLUMNS if c not in frame.columns]
+    if missing:
+        raise ValueError(f'Columns missing for legacy gap view: {missing}')
     groups = [('', 2), ('RESERVOIR', 2), ('WELL', 2), ('MANIFOLD', 2),
-              ('CPS', 2), ('FINAL INJ', 1), ('INJ RATE', 1),
-              ('Capacity Gap Table', 6), ('Decision Impact', 3)]
-    groups_html = ''.join(f'<th colspan="{span}">{html.escape(group)}</th>' for group,span in groups)
+              ('CPS', 2), ('FINAL INJ', 1), ('INJ_RATE @ OE', 1),
+              ('Capacity Gap_TABLE', 6)]
     headers = [
-        'CPS','Manifold','RMT_TARGET','RMT_OE','WELL_CAPACITY','AGREED_TARGET',
-        'Maximum Manifold Capacity','Manifold Injection Rate','Maximum CPS Capacity',
-        'CPS Injection Rate','IIC','INJ_RATE @ OE','High Gap',
-        f'Well Constraint to {target}', 'MF Capacity Shortfall to Agreed Target',
+        'CPS', 'Manifold', 'RMT_TARGET', 'RMT_OE', 'WELL_CAPACITY',
+        'AGREED_TARGET', 'Maximum Manifold Capacity', 'Manifold Injection Rate',
+        'Maximum CPS Capacity', 'CPS Injection Rate', 'IIC', '', 'High Gap',
+        # The selected target is shown in the column to avoid claiming the
+        # signed well gap is against RMT when RMT+OE is selected.
+        f'Well Constraint to {target}',
+        'MF Capacity Shortfall to Agreed Target',
         'MF Capacity Shortfall to RMT+OE Target',
         'CPS Capacity Shortfall to Agreed Target',
         'CPS Capacity Shortfall to RMT+OE Target',
-        f'MF Delivery Gap to {target}', 'MF Ullage', 'CPS Ullage',
     ]
-    assert len(cols) == len(headers) == sum(span for _,span in groups)
-    output=[_SUMMARY_CSS, '<div class="wi-gap-wrap">',
-            f'<div class="wi-gap-title">{html.escape(scenario)} — Gap Analysis Summary (mbd)</div>',
-            '<table class="wi-gap-table"><thead><tr>',groups_html,'</tr><tr>']
-    output.extend(f'<th>{html.escape(h)}</th>' for h in headers)
-    output.extend(['</tr></thead><tbody>'])
-    data = frame[frame['CPS'].ne('TOTAL')]
-    cps_only = FACILITY_FIELDS
-    counts = data.groupby('CPS', sort=False).size().to_dict()
-    last_fac = None
+    assert len(SCREENSHOT_COLUMNS) == len(headers) == sum(span for _,span in groups) == 18
+    date_text = '' if analysis_date is None else f' {analysis_date}'
+    title = f'Gap analysis{date_text} — {scenario.title()} — mbd'
+    # Widths sum to approximately the reference screenshot.  The last 6
+    # columns preserve the widest gap headers for exact screenshot alignment.
+    col_widths = [42, 58, 64, 64, 94, 96, 104, 105, 95, 95, 52, 78,
+                  49, 119, 145, 145, 154, 170]
+    out = [_SCREENSHOT_GAP_CSS, '<div class="roo-gap-heading">',
+           html.escape(title), '</div>', '<div class="roo-gap-scroll">',
+           '<table class="roo-gap-reference"><colgroup>']
+    out.extend(f'<col style="width:{size}px">' for size in col_widths)
+    out.extend(['</colgroup><thead><tr class="top-groups">'])
+    out.extend(f'<th colspan="{span}">{html.escape(group)}</th>' for group,span in groups)
+    out.append('</tr><tr class="column-headings">')
+    out.extend(f'<th>{html.escape(h)}</th>' for h in headers)
+    out.append('</tr></thead><tbody>')
+    data=frame.loc[frame['CPS'].astype(str).ne('TOTAL')]
+    counts=data.groupby('CPS',sort=False,observed=True).size().to_dict()
+    previous=None
     for _, r in data.iterrows():
-        first = r['CPS'] != last_fac
-        fac = str(r['CPS']); last_fac = fac
-        output.append(f'<tr class="{ "fac-start" if first else ""}">')
-        for field in cols:
-            if field == 'CPS' or field in cps_only:
+        fac=str(r['CPS'])
+        first=fac!=previous
+        previous=fac
+        out.append('<tr>')
+        for field in SCREENSHOT_COLUMNS:
+            if field=='CPS' or field in SCREENSHOT_FACILITY_COLUMNS:
                 if not first:
                     continue
                 span=f' rowspan="{counts[fac]}"'
-            else: span=''
-            value=r[field]
-            if field == 'Manifold':
-                txt = str(value)
-                shown = txt[len(fac)+1:] if txt.startswith(fac+'_') else txt
-                klass='manifold'
-            elif field == 'CPS':
-                shown = fac;klass='fac'
-            elif field == 'High Gap':
-                shown = str(value);klass='high' if shown=='HIGH' else ''
-            elif pd.isna(value):
-                shown = 'n.a.';klass=''
             else:
-                val=float(value)
-                shown=f'{val:,.1f}'
-                if field in PHYSICAL_GAP_FIELDS:
-                    sev=-val if field.startswith('Well Constraint') else val
-                    klass='criticalgap' if sev>20 else 'mediumgap' if sev>5 else 'lowgap'
-                elif field in ('MF Ullage','CPS Ullage') and val < -0.0001:
-                    klass='negative'
-                else: klass=''
-            output.append(f'<td class="{klass}"{span}>{html.escape(shown)}</td>')
-        output.append('</tr>')
-    total = frame[frame.CPS.eq('TOTAL')]
-    if len(total):
-        r=total.iloc[0]
-        output.append('<tr class="total">')
-        for field in cols:
+                span=''
             val=r[field]
-            txt=('n.a.' if pd.isna(val) else f'{float(val):,.1f}') if field in RATE_FIELDS else str(val)
-            output.append(f'<td>{html.escape(txt)}</td>')
-        output.append('</tr>')
-    output.append('</tbody></table></div>')
-    return ''.join(output)
+            cell_class=''
+            if field=='CPS':
+                content=fac
+                cell_class='fac'
+            elif field=='Manifold':
+                value=str(val)
+                content=value[len(fac)+1:] if value.startswith(fac+'_') else value
+                cell_class='manifold'
+            elif field=='High Gap':
+                content='' if pd.isna(val) else str(val)
+                cell_class='flag'
+            elif pd.isna(val):
+                content='n.a.'
+            else:
+                value=float(val)
+                content=f'{value:,.1f}'
+                if field in PHYSICAL_GAP_FIELDS:
+                    # Screenshot palette: green = no gap, yellow = moderate,
+                    # orange = severe. Signed well constraints are negative.
+                    shortfall = (-value if field=='Well Constraint to Selected Target' else value)
+                    if shortfall <= 0.001:
+                        cell_class='gap-zero'
+                    elif shortfall >= 20:
+                        cell_class='gap-high'
+                    elif shortfall >= 5:
+                        cell_class='gap-med'
+                    else:
+                        cell_class='gap-low'
+            out.append(f'<td class="{cell_class}"{span}>{html.escape(content)}</td>')
+        out.append('</tr>')
+    total=frame.loc[frame['CPS'].astype(str).eq('TOTAL')]
+    if not total.empty:
+        row=total.iloc[0]
+        out.append('<tr class="total-row">')
+        for field in SCREENSHOT_COLUMNS:
+            value=row[field]
+            if field in RATE_FIELDS:
+                content='n.a.' if pd.isna(value) else f'{float(value):,.1f}'
+            elif field=='High Gap':
+                content=''
+            else:
+                content='' if pd.isna(value) else str(value)
+            out.append(f'<td>{html.escape(content)}</td>')
+        out.append('</tr>')
+    out.append('</tbody></table></div>')
+    return ''.join(out)

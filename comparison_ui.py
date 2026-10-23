@@ -41,7 +41,7 @@ def _download_html(figures):
             + ''.join(blocks) +'</body></html>').encode('utf-8')
 
 
-def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default='RMT+OE Target',baseline_note=''):
+def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default='RMT+OE Target',baseline_note='',analysis_date=None):
     """Called only AFTER optimizer result exists and has passed input QC."""
     st.header('Original vs Optimized | Performance & Capacity Gap')
     st.caption('All bar charts are calculated from the optimizer’s dated well-by-well result, with the same CPS and manifold capacities in both scenarios.')
@@ -100,9 +100,9 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
     a,b,c,d=st.tabs(['Capacity Gap & Tables','VoW × Oil Supported','Ullage by CPS / Manifold','Optimization Decision Summary'])
     with a:
         st.markdown('### Original vs Optimized — Full Capacity Gap Summary')
-        st.caption('Same grouped layout as the WI Gap Analysis source table. Original is the selected dated baseline; '
+        st.caption('Exact 18-column layout of the supplied WI Gap Analysis source screenshot. Original is the selected dated baseline; '
                    'Optimized is the exact solved well allocation, including approved same-CPS manifold changes. '
-                   'All values are **mbd**. Scroll each table horizontally to see the capacity gaps and decision columns.')
+                   'All values are **mbd**. Scroll horizontally to view all 18 columns. The separate Changes tab retains the decision-impact columns.')
         original_summary, optimized_summary, gap_delta = gs.build_gap_summary(comp, target)
         original_summary = original_summary[original_summary['CPS'].isin(selection + ['TOTAL'])].copy()
         optimized_summary = optimized_summary[optimized_summary['CPS'].isin(selection + ['TOTAL'])].copy()
@@ -128,9 +128,9 @@ def render_comparison(result,caps,source_gap,pattern,mapping=None,target_default
             f"{optimized_total['CPS Ullage']-original_total['CPS Ullage']:+,.1f} mbd")
         summary_tabs=st.tabs(['Original — Before','Optimized — After','Changes by Manifold'])
         with summary_tabs[0]:
-            st.markdown(gs.gap_table_html(original_summary,'ORIGINAL',target),unsafe_allow_html=True)
+            st.markdown(gs.gap_table_html(original_summary,'ORIGINAL',target,analysis_date),unsafe_allow_html=True)
         with summary_tabs[1]:
-            st.markdown(gs.gap_table_html(optimized_summary,'OPTIMIZED',target),unsafe_allow_html=True)
+            st.markdown(gs.gap_table_html(optimized_summary,'OPTIMIZED',target,analysis_date),unsafe_allow_html=True)
         with summary_tabs[2]:
             st.caption('Positive delivery-gap reduction is favorable. Negative manifold ullage change means '
                        'previously unused capacity is being utilized. Physical capacity shortfall remains unchanged '

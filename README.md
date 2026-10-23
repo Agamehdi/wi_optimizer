@@ -101,7 +101,7 @@ The main page shows an optimization KPI scorecard; CPS/bar comparison; manifold 
 
 ## QA
 
-`pytest -q` runs offline tests for source parsing, scoring, CPS isolation, conservation, unscored protection and approved manifold rerouting. **6 tests pass** against the packaged calculation engine in this build environment. The Streamlit UI is statically syntax-checked; a deployed browser session has **not** been run in this environment. Always verify the app against the actual Rumaila worksheets, especially mapping and facility labels.
+`pytest -q` runs offline tests for source parsing, scoring, CPS isolation, conservation, unscored protection and approved manifold rerouting. **22 tests pass** against the packaged calculation engine in this build environment. The Streamlit UI is statically syntax-checked; a deployed browser session has **not** been run in this environment. Always verify the app against the actual Rumaila worksheets, especially mapping and facility labels.
 
 ## Package files
 
@@ -155,3 +155,97 @@ represented as historical measured-versus-optimized performance.
 A full `Well,Pattern,Reservoir,Weight` mapping can be uploaded to generate
 Pattern-level Original/Optimized; mapping weights per well must sum to 1. Without
 this file, the tool does not claim pattern redistribution accuracy.
+
+## V2.1 bug fix — 23 October 2026
+
+Resolved **`Cannot compute before/after comparisons: Grouper for 'CPS' not 1-dimensional`**.
+The parser intentionally retains the input's original `CPS` column, and the
+comparison module previously renamed `facility` to `CPS` on the whole input
+frame, silently creating duplicate `CPS` column labels. The comparison now
+constructs an explicit, unique CPS / manifold routing frame from the solved
+well rows, preserving the original reported values while avoiding duplicate
+column names.
+
+Also fixed a premature reference to the `mf` dataframe in the Comparison UI
+(that would previously have caused an exception immediately after the groupby
+fix). Optional source `Reservoir` values are now handled more consistently.
+
+**To update:** replace all Python files with this package (or at minimum
+`comparison_views.py`, `comparison_ui.py`, and `streamlit_app.py`), retaining
+`pages/`, `templates/`, `pattern_core.py`, `wi_gap.py`, `optimizer_core.py`,
+and `requirements.txt`. Redeploy Streamlit Cloud and click Run optimization
+again; if a previous session caches stale state, refresh/restart the app.
+
+**Verification (V2.1):** 17 offline tests passed, including a representative full
+source parser → MILP optimization → comparison flow and a non-browser mocked
+Streamlit render of all plots. Real private Rumaila inputs and the live
+Streamlit deployment have not yet been exercised in this environment.
+
+
+## V2.2 — Reference-style Gap Summary (Original / Optimized)
+
+In the **📊 Original vs Optimized** tab, open **Capacity Gap & Tables**.
+At the TOP of the tab, three new views have been added, without changing the
+existing charts, filters, optimization model or other pages:
+
+- **Original — Before**: grouped, screenshot-style Gap Analysis summary using
+  the *selected dated well baseline*.
+- **Optimized — After**: exactly the same layout and units using the solved
+  optimized injection and any explicitly approved within-CPS reroutes.
+- **Changes by Manifold**: original / optimized injection, injection delta,
+  target-delivery gap reduction, remaining manifold ullage and physical MF
+  target shortfall delta. A KPI strip shows overall improvements.
+
+Both grouped tables include Reservoir (RMT, RMT+OE), Well (BMT capacity and
+Agreed), manifold limits/allocated rates, CPS maximum/allocated rates,
+"High Gap", signed well deliverability constraint, manifold and CPS capacity
+shortfalls, and additional Decision Impact columns (delivery gap and ullage).
+CPS-only rates/capacities appear once per CPS in the HTML report, and are
+**counted only once** in the TOTAL rows. Rates are displayed in mbd.
+
+**Technical interpretation:** The source Gap report's original RMT/OE
+injection columns represent independently calculated target scenarios.
+The IIC and INJ_RATE @ OE fields in these **optimization comparison tables**
+are repurposed to show the *same original/optimized selected allocation*;
+this is intentional, disclosed immediately below the table, and must **not**
+be described as a fresh OE-only prediction. Physical CPS gap stays unchanged
+when only rates are reallocated. A manifold physical gap can change if an
+approved reroute moves a well and its full target/BMT capacity. Missing BMT
+assessment makes that manifold's physical well-constraint gap **n.a.**
+
+The **Export Original vs Optimized Excel** button now also includes:
+`Gap_Summary_Original`, `Gap_Summary_Optimized`, and
+`Gap_Manifold_Changes`. Existing report worksheets remain unchanged.
+
+**Required new module:** `gap_summary.py`. Add this file to the repository
+root alongside `comparison_ui.py` and `comparison_views.py`.
+
+**Verification (V2.2):** 22 offline tests passed, including the full existing
+17-test suite and five new summary tests for totals, signed gaps, missing BMT
+assessment, screenshot-style headers, and target attribution during rerouting.
+Real Rumaila inputs and Streamlit Cloud deployment still require field QC.
+
+## V2.3 — Exact Original / After-Optimized Gap Analysis table format
+
+The original **Original vs Optimized → Capacity Gap & Tables** tab now reproduces
+**the original 18-column Gap Analysis screenshot layout**, once for Original and
+once for After Optimized:
+
+- 2-row white grouped headers (RESERVOIR, WELL, MANIFOLD, CPS, FINAL INJ,
+  INJ_RATE @ OE, Capacity Gap_TABLE)
+- all six capacity-gap columns, with legacy pastel green / yellow / orange
+  threshold coloring
+- vertically merged CPS and CPS-level rate/capacity/shortfall cells
+- original manifold naming, one-decimal mbd format and bold TOTAL row
+- selected analysis snapshot date included in the title
+- horizontal scrolling so the full reference layout works on smaller screens
+
+No optimizer maths, pattern calculations, scatter plots, ullage plots, input
+handling, or Excel export layout was changed. The separate **Changes by
+Manifold** tab remains available; the extra decision columns are no longer
+embedded in the 18-column reference table.
+
+To verify: `python -m pytest -q` — **24 tests** pass in this build. A browser
+rendering of the exact HTML layout has also been inspected against the reference
+screenshot with synthetic regression data; actual field input/output should still
+be QCed in the deployed Streamlit app.

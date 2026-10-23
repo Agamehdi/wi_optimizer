@@ -381,4 +381,3 @@ def prepare_comparisons(result:dict, caps:dict, source_gap:Optional[pd.DataFrame
             'scatter_manifold':mf_scatter,'scatter_pattern':pat_scatter,
             'pattern_issues':notes,'metrics':summary_metrics(w,fac),
             'selected_target':target}
-
