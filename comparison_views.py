@@ -51,15 +51,22 @@ def capacity_gap_comparison(wells: pd.DataFrame, caps: dict,
     w=wells.copy()
     if w.Well.duplicated().any():
         raise ValueError('Comparison requires one dated record per well.')
-    w['Before Manifold']=w['manifold']; w['After Manifold']=w['Recommended manifold']
+    # Parsed source well CSVs retain their ORIGINAL `CPS` (and sometimes
+    # `Manifold`) columns as well as normalized `facility` / `manifold`.
+    # rename(facility='CPS') therefore produces TWO columns named 'CPS',
+    # breaking pandas groupby with: Grouper for 'CPS' not 1-dimensional.
+    # Build a canonical minimal comparison frame and inject physical routing
+    # keys explicitly. NEVER rename the full, source-enriched well frame.
     for col in ['rmt','oe','agreed','capacity','baseline','Optimized injection']:
         w[col]=pd.to_numeric(w[col],errors='coerce')
     if w[['rmt','oe','agreed','baseline','Optimized injection']].isna().any().any():
         raise ValueError('Missing well rates/target values for comparison.')
     w['Selected target']=w['oe'] if gap_target=='RMT+OE Target' else w['rmt'] if gap_target=='RMT Target' else w['agreed']
     w['Well Physical Shortfall']=(w['Selected target']-w['capacity']).clip(lower=0)
-    before=w.rename(columns={'facility':'CPS','Before Manifold':'Manifold'}).copy()
-    after=w.rename(columns={'facility':'CPS','After Manifold':'Manifold'}).copy()
+    needed=['Well','rmt','oe','agreed','capacity','baseline','Optimized injection','Well Physical Shortfall']
+    base=w.loc[:,needed].copy()
+    before=base.assign(CPS=w['facility'].to_numpy(), Manifold=w['manifold'].to_numpy())
+    after=base.assign(CPS=w['facility'].to_numpy(), Manifold=w['Recommended manifold'].to_numpy())
     kb=['CPS','Manifold']
     bt=_group_values(before,kb).rename(columns={x:x+' Before' for x in ['RMT Target','RMT+OE Target','Agreed Target','BMT Well Capacity','Wells']})
     at=_group_values(after,kb).rename(columns={x:x+' After' for x in ['RMT Target','RMT+OE Target','Agreed Target','BMT Well Capacity','Wells']})
@@ -195,9 +202,16 @@ def pattern_allocation_rollup(wells:pd.DataFrame,pattern:pd.DataFrame,
         gp=(pat.groupby(['pat_key','CPS'],dropna=False)[['Injection','Supported']].sum().reset_index())
     gp=gp[gp.Injection>0].copy()
     gp['Source VoW']=gp.Supported/gp.Injection
-    m=m.merge(wells[['Well','facility','Reservoir','baseline','Optimized injection']].assign(
-        Well=lambda x:x.Well.astype(str).str.upper()).rename(columns={'Reservoir':'_well_reservoir'}),
-        on='Well',how='inner')
+    # Reservoir is an optional well-CSV column. Keep Pattern mapping usable
+    # when it is absent (CPS + Pattern matching still applies).
+    wellcols=['Well','facility','baseline','Optimized injection']
+    if 'Reservoir' in wells.columns:
+        wellcols.append('Reservoir')
+    source_wells=wells[wellcols].copy()
+    source_wells['_well_reservoir']=(source_wells['Reservoir'] if 'Reservoir' in source_wells else '')
+    source_wells=source_wells.drop(columns='Reservoir',errors='ignore')
+    source_wells['Well']=source_wells['Well'].astype(str).str.strip().str.upper()
+    m=m.merge(source_wells,on='Well',how='inner')
     if m.empty:return pd.DataFrame(),['None of the uploaded Well-to-Pattern mapping IDs match the selected well snapshot.']
     if with_res:
         map_res_column=lookup.get('reservoir')
@@ -367,3 +381,4 @@ def prepare_comparisons(result:dict, caps:dict, source_gap:Optional[pd.DataFrame
             'scatter_manifold':mf_scatter,'scatter_pattern':pat_scatter,
             'pattern_issues':notes,'metrics':summary_metrics(w,fac),
             'selected_target':target}
+
